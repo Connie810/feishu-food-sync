@@ -33,8 +33,23 @@ async function syncFeiShuData() {
     const token = tokenRes.data.tenant_access_token;
     console.log('成功获取访问令牌');
     
-    // 2. 直接处理每个工作表
-    const categories = ['随便', '饮品', '家常菜', '优惠'];
+    // 2. 获取表格中的所有工作表 (使用V3 API)
+    console.log('获取表格中的所有工作表...');
+    const sheetsRes = await axios.get(
+      `https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${SHEET_TOKEN}/sheets`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    
+    console.log('工作表列表响应:', JSON.stringify(sheetsRes.data, null, 2));
+    
+    if (!sheetsRes.data || !sheetsRes.data.data || !sheetsRes.data.data.sheets) {
+      throw new Error('获取工作表列表失败: ' + JSON.stringify(sheetsRes.data));
+    }
+    
+    const sheets = sheetsRes.data.data.sheets;
+    console.log(`找到 ${sheets.length} 个工作表`);
+    
+    // 3. 处理每个工作表
     const categoryIds = {
       '随便': 'all',
       '饮品': 'drinks',
@@ -44,27 +59,36 @@ async function syncFeiShuData() {
     
     let foodData = {};
     
-    for (const category of categories) {
-      console.log(`处理工作表: ${category}`);
+    for (const sheet of sheets) {
+      const sheetTitle = sheet.sheet_name || sheet.title;
+      const sheetId = sheet.sheet_id;
+      
+      // 只处理我们关心的工作表
+      if (!Object.keys(categoryIds).includes(sheetTitle)) {
+        console.log(`跳过工作表: ${sheetTitle}`);
+        continue;
+      }
+      
+      console.log(`处理工作表: ${sheetTitle} (ID: ${sheetId})`);
       
       try {
-        // 获取工作表数据，直接使用工作表名称
-        const encodedCategory = encodeURIComponent(category);
+        // 使用V3 API获取工作表数据
         const dataRes = await axios.get(
-          `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values/${encodedCategory}`,
+          `https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${SHEET_TOKEN}/values/${sheetTitle}`,
           { headers: { 'Authorization': `Bearer ${token}` } }
         );
         
-        console.log(`工作表 ${category} 数据响应状态码:`, dataRes.status);
+        console.log(`工作表 ${sheetTitle} 数据响应状态码:`, dataRes.status);
+        console.log(`工作表 ${sheetTitle} 数据响应:`, JSON.stringify(dataRes.data, null, 2));
         
         if (!dataRes.data || !dataRes.data.data || !dataRes.data.data.values) {
-          console.log(`工作表 ${category} 没有数据，跳过`);
+          console.log(`工作表 ${sheetTitle} 没有数据，跳过`);
           continue;
         }
         
         const rows = dataRes.data.data.values;
         if (rows.length < 2) {
-          console.log(`工作表 ${category} 数据不足，跳过`);
+          console.log(`工作表 ${sheetTitle} 数据不足，跳过`);
           continue;
         }
         
@@ -73,17 +97,17 @@ async function syncFeiShuData() {
         console.log(`表头: ${headers.join(', ')}`);
         
         // 根据您提供的表头信息找到各列的索引
-        const activeIndex = headers.findIndex(h => h && h.toLowerCase() === 'active');
-        const nameIndex = headers.findIndex(h => h && h.toLowerCase() === 'foodname');
-        const descIndex = headers.findIndex(h => h && h.toLowerCase() === 'fooddescription');
-        const imageIndex = headers.findIndex(h => h && h.toLowerCase() === 'imageurl');
-        const appIdIndex = headers.findIndex(h => h && h.toLowerCase() === 'appid');
-        const pathIndex = headers.findIndex(h => h && h.toLowerCase() === 'path');
+        const activeIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'active');
+        const nameIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'foodname');
+        const descIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'fooddescription');
+        const imageIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'imageurl');
+        const appIdIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'appid');
+        const pathIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'path');
         
         console.log(`列索引 - active: ${activeIndex}, name: ${nameIndex}, description: ${descIndex}, image: ${imageIndex}, appId: ${appIdIndex}, path: ${pathIndex}`);
         
         if (nameIndex === -1 || imageIndex === -1) {
-          console.log(`工作表 ${category} 缺少必要的列，跳过`);
+          console.log(`工作表 ${sheetTitle} 缺少必要的列，跳过`);
           continue;
         }
         
@@ -94,7 +118,7 @@ async function syncFeiShuData() {
           if (!row || row.length === 0) continue;
           
           // 检查active状态
-          if (activeIndex !== -1 && (!row[activeIndex] || row[activeIndex].toUpperCase() !== 'Y')) {
+          if (activeIndex !== -1 && (!row[activeIndex] || String(row[activeIndex]).toUpperCase() !== 'Y')) {
             continue;
           }
           
@@ -111,7 +135,7 @@ async function syncFeiShuData() {
           };
           
           // 优惠类别额外字段
-          if (category === '优惠') {
+          if (sheetTitle === '优惠') {
             if (appIdIndex !== -1 && row[appIdIndex]) item.appId = row[appIdIndex];
             if (pathIndex !== -1 && row[pathIndex]) item.path = row[pathIndex];
             // 添加platform字段，用于小程序中显示
@@ -121,26 +145,28 @@ async function syncFeiShuData() {
           items.push(item);
         }
         
-        console.log(`工作表 ${category} 处理完成，有效数据 ${items.length} 条`);
-        foodData[categoryIds[category]] = items;
+        console.log(`工作表 ${sheetTitle} 处理完成，有效数据 ${items.length} 条`);
+        foodData[categoryIds[sheetTitle]] = items;
       } catch (error) {
-        console.error(`处理工作表 ${category} 时出错:`, error.message);
+        console.error(`处理工作表 ${sheetTitle} 时出错:`, error.message);
         // 继续处理下一个工作表
       }
     }
     
     // 检查是否获取到任何数据
-    const totalItems = Object.values(foodData).reduce((sum, items) => sum + items.length, 0);
+    const totalItems = Object.values(foodData).reduce((sum, items) => sum + (items ? items.length : 0), 0);
+    console.log(`总共获取到 ${totalItems} 条数据`);
+    
     if (totalItems === 0) {
       throw new Error('未能从任何工作表获取数据');
     }
     
-    // 3. 将数据保存为本地JSON文件
+    // 4. 将数据保存为本地JSON文件
     const jsonData = JSON.stringify(foodData, null, 2);
     fs.writeFileSync('food-data.json', jsonData);
     console.log('数据已保存到本地文件');
     
-    // 4. 上传到OSS
+    // 5. 上传到OSS
     console.log('开始上传到OSS...');
     
     try {
