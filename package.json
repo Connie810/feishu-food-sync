@@ -1,0 +1,13 @@
+{
+  "name": "feishu-food-sync",
+  "version": "1.0.0",
+  "description": "Sync food data from Feishu to OSS",
+  "main": "sync-feishu-data.js",
+  "scripts": {
+    "sync": "node sync-feishu-data.js"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "ali-oss": "^6.17.1"
+  }
+}
