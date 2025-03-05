@@ -33,7 +33,28 @@ async function syncFeiShuData() {
     const token = tokenRes.data.tenant_access_token;
     console.log('成功获取访问令牌');
     
-    // 2. 使用批量读取API获取所有工作表数据
+    // 2. 先获取所有工作表信息
+    console.log('获取工作表信息...');
+    const sheetsRes = await axios.get(
+      `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/sheets`,
+      { headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    
+    console.log('工作表信息响应:', JSON.stringify(sheetsRes.data, null, 2));
+    
+    if (!sheetsRes.data || !sheetsRes.data.data || !sheetsRes.data.data.sheets) {
+      throw new Error('获取工作表信息失败: ' + JSON.stringify(sheetsRes.data));
+    }
+    
+    const sheets = sheetsRes.data.data.sheets;
+    console.log(`获取到 ${sheets.length} 个工作表`);
+    
+    // 打印所有工作表名称和ID
+    sheets.forEach(sheet => {
+      console.log(`工作表: ${sheet.sheet_name || sheet.title}, ID: ${sheet.sheet_id}`);
+    });
+    
+    // 3. 处理每个工作表
     const categories = ['随便', '饮品', '家常菜', '优惠'];
     const categoryIds = {
       '随便': 'all',
@@ -42,111 +63,115 @@ async function syncFeiShuData() {
       '优惠': 'deals'
     };
     
-    // 构建范围参数
-    const ranges = categories.map(category => `${encodeURIComponent(category)}!A:Z`).join(',');
-    console.log('批量读取范围:', ranges);
-    
-    // 使用批量读取API
-    console.log('使用批量读取API获取数据...');
-    const batchRes = await axios.get(
-      `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values_batch_get?ranges=${ranges}&valueRenderOption=ToString&dateTimeRenderOption=FormattedString`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
-    
-    console.log('批量读取响应状态码:', batchRes.status);
-    
-    if (!batchRes.data || !batchRes.data.data || !batchRes.data.data.valueRanges) {
-      throw new Error('批量读取数据失败: ' + JSON.stringify(batchRes.data));
-    }
-    
-    const valueRanges = batchRes.data.data.valueRanges;
-    console.log(`获取到 ${valueRanges.length} 个范围的数据`);
-    
-    // 处理每个范围的数据
     let foodData = {};
     
-    for (let i = 0; i < valueRanges.length; i++) {
-      const range = valueRanges[i];
-      const sheetName = range.range.split('!')[0];
-      const decodedSheetName = decodeURIComponent(sheetName);
-      const category = categories.find(cat => cat === decodedSheetName);
-      
-      if (!category) {
-        console.log(`找不到匹配的分类: ${decodedSheetName}`);
-        continue;
-      }
-      
+    for (const category of categories) {
       console.log(`处理工作表: ${category}`);
       
-      if (!range.values || range.values.length < 2) {
-        console.log(`工作表 ${category} 数据不足，跳过`);
+      // 查找匹配的工作表
+      const sheet = sheets.find(s => (s.sheet_name || s.title) === category);
+      
+      if (!sheet) {
+        console.log(`找不到工作表: ${category}`);
         continue;
       }
       
-      // 假设第一行是表头
-      const headers = range.values[0];
-      console.log(`表头: ${headers.join(', ')}`);
+      const sheetId = sheet.sheet_id;
+      console.log(`找到工作表 ${category}, ID: ${sheetId}`);
       
-      // 更灵活的表头匹配
-      const findColumnIndex = (headers, possibleNames) => {
-        for (const name of possibleNames) {
-          const index = headers.findIndex(h => h && String(h).toLowerCase() === name.toLowerCase());
-          if (index !== -1) return index;
-        }
-        return -1;
-      };
-      
-      // 查找各列索引
-      const activeIndex = findColumnIndex(headers, ['active', 'Active', '启用', '是否启用']);
-      const nameIndex = findColumnIndex(headers, ['foodname', 'FoodName', 'name', 'Name', '名称', '食物名称']);
-      const descIndex = findColumnIndex(headers, ['fooddescription', 'FoodDescription', 'description', 'Description', '描述', '食物描述']);
-      const imageIndex = findColumnIndex(headers, ['imageurl', 'ImageUrl', 'image', 'Image', '图片', '图片链接']);
-      const appIdIndex = findColumnIndex(headers, ['appid', 'AppId', 'appID', 'AppID', '小程序ID']);
-      const pathIndex = findColumnIndex(headers, ['path', 'Path', '路径', '小程序路径']);
-      
-      console.log(`列索引 - active: ${activeIndex}, name: ${nameIndex}, description: ${descIndex}, image: ${imageIndex}, appId: ${appIdIndex}, path: ${pathIndex}`);
-      
-      if (nameIndex === -1 || imageIndex === -1) {
-        console.log(`工作表 ${category} 缺少必要的列，跳过`);
-        continue;
-      }
-      
-      // 处理数据行
-      const items = [];
-      for (let j = 1; j < range.values.length; j++) {
-        const row = range.values[j];
-        if (!row || row.length === 0) continue;
+      try {
+        // 使用工作表ID获取数据
+        console.log(`获取工作表 ${category} 的数据...`);
+        const dataRes = await axios.get(
+          `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values/${sheetId}!A:Z`,
+          { headers: { 'Authorization': `Bearer ${token}` } }
+        );
         
-        // 检查active状态
-        if (activeIndex !== -1 && (!row[activeIndex] || String(row[activeIndex]).toUpperCase() !== 'Y')) {
+        console.log(`工作表 ${category} 数据响应状态码:`, dataRes.status);
+        
+        if (!dataRes.data || !dataRes.data.data || !dataRes.data.data.values) {
+          console.log(`工作表 ${category} 没有数据，跳过`);
           continue;
         }
         
-        // 确保必要字段存在
-        if (!row[nameIndex] || !row[imageIndex]) {
+        const rows = dataRes.data.data.values;
+        console.log(`工作表 ${category} 获取到 ${rows.length} 行数据`);
+        
+        if (rows.length < 2) {
+          console.log(`工作表 ${category} 数据不足，跳过`);
           continue;
         }
         
-        // 基本字段
-        const item = {
-          name: row[nameIndex],
-          image: row[imageIndex],
-          description: descIndex !== -1 && row.length > descIndex ? (row[descIndex] || '') : ''
+        // 假设第一行是表头
+        const headers = rows[0];
+        console.log(`表头: ${headers.join(', ')}`);
+        
+        // 更灵活的表头匹配
+        const findColumnIndex = (headers, possibleNames) => {
+          for (const name of possibleNames) {
+            const index = headers.findIndex(h => h && String(h).toLowerCase() === name.toLowerCase());
+            if (index !== -1) return index;
+          }
+          return -1;
         };
         
-        // 优惠类别额外字段
-        if (category === '优惠') {
-          if (appIdIndex !== -1 && row.length > appIdIndex && row[appIdIndex]) item.appId = row[appIdIndex];
-          if (pathIndex !== -1 && row.length > pathIndex && row[pathIndex]) item.path = row[pathIndex];
-          // 添加platform字段，用于小程序中显示
-          item.platform = '美团圈圈';
+        // 查找各列索引
+        const activeIndex = findColumnIndex(headers, ['active', 'Active', '启用', '是否启用']);
+        const nameIndex = findColumnIndex(headers, ['foodname', 'FoodName', 'name', 'Name', '名称', '食物名称']);
+        const descIndex = findColumnIndex(headers, ['fooddescription', 'FoodDescription', 'description', 'Description', '描述', '食物描述']);
+        const imageIndex = findColumnIndex(headers, ['imageurl', 'ImageUrl', 'image', 'Image', '图片', '图片链接']);
+        const appIdIndex = findColumnIndex(headers, ['appid', 'AppId', 'appID', 'AppID', '小程序ID']);
+        const pathIndex = findColumnIndex(headers, ['path', 'Path', '路径', '小程序路径']);
+        
+        console.log(`列索引 - active: ${activeIndex}, name: ${nameIndex}, description: ${descIndex}, image: ${imageIndex}, appId: ${appIdIndex}, path: ${pathIndex}`);
+        
+        if (nameIndex === -1 || imageIndex === -1) {
+          console.log(`工作表 ${category} 缺少必要的列，跳过`);
+          continue;
         }
         
-        items.push(item);
+        // 处理数据行
+        const items = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+          
+          // 检查active状态
+          if (activeIndex !== -1 && (!row[activeIndex] || String(row[activeIndex]).toUpperCase() !== 'Y')) {
+            continue;
+          }
+          
+          // 确保必要字段存在
+          if (!row[nameIndex] || !row[imageIndex]) {
+            continue;
+          }
+          
+          // 基本字段
+          const item = {
+            name: row[nameIndex],
+            image: row[imageIndex],
+            description: descIndex !== -1 && row.length > descIndex ? (row[descIndex] || '') : ''
+          };
+          
+          // 优惠类别额外字段
+          if (category === '优惠') {
+            if (appIdIndex !== -1 && row.length > appIdIndex && row[appIdIndex]) item.appId = row[appIdIndex];
+            if (pathIndex !== -1 && row.length > pathIndex && row[pathIndex]) item.path = row[pathIndex];
+            // 添加platform字段，用于小程序中显示
+            item.platform = '美团圈圈';
+          }
+          
+          items.push(item);
+        }
+        
+        console.log(`工作表 ${category} 处理完成，有效数据 ${items.length} 条`);
+        foodData[categoryIds[category]] = items;
+      } catch (error) {
+        console.error(`处理工作表 ${category} 时出错:`, error.message);
+        if (error.response) {
+          console.error('错误响应:', JSON.stringify(error.response.data, null, 2));
+        }
       }
-      
-      console.log(`工作表 ${category} 处理完成，有效数据 ${items.length} 条`);
-      foodData[categoryIds[category]] = items;
     }
     
     // 检查是否获取到任何数据
@@ -252,4 +277,4 @@ syncFeiShuData().then(result => {
     console.error('同步失败');
     process.exit(1);
   }
-});
+}); 
