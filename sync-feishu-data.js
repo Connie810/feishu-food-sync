@@ -40,8 +40,9 @@ async function syncFeiShuData() {
     for (const category of categories) {
       console.log(`获取${category}分类数据...`);
       // 获取对应工作表的数据
+      const encodedCategory = encodeURIComponent(category);
       const sheetRes = await axios.get(
-        `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values/${category}`,
+        `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values/${encodedCategory}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
       
