@@ -94,13 +94,15 @@ async function syncFeiShuData() {
       const headers = rows[0];
       console.log(`表头: ${headers.join(', ')}`);
       
-      // 找到各列的索引
-      const nameIndex = headers.findIndex(h => h && h.toLowerCase() === 'name');
-      const imageIndex = headers.findIndex(h => h && h.toLowerCase() === 'image');
-      const descIndex = headers.findIndex(h => h && h.toLowerCase() === 'description');
+      // 根据您提供的表头信息找到各列的索引
       const activeIndex = headers.findIndex(h => h && h.toLowerCase() === 'active');
+      const nameIndex = headers.findIndex(h => h && h.toLowerCase() === 'foodname');
+      const descIndex = headers.findIndex(h => h && h.toLowerCase() === 'fooddescription');
+      const imageIndex = headers.findIndex(h => h && h.toLowerCase() === 'imageurl');
+      const appIdIndex = headers.findIndex(h => h && h.toLowerCase() === 'appid');
+      const pathIndex = headers.findIndex(h => h && h.toLowerCase() === 'path');
       
-      console.log(`列索引 - name: ${nameIndex}, image: ${imageIndex}, description: ${descIndex}, active: ${activeIndex}`);
+      console.log(`列索引 - active: ${activeIndex}, name: ${nameIndex}, description: ${descIndex}, image: ${imageIndex}, appId: ${appIdIndex}, path: ${pathIndex}`);
       
       if (nameIndex === -1 || imageIndex === -1 || descIndex === -1) {
         console.log(`工作表 ${sheetTitle} 缺少必要的列，跳过`);
@@ -132,8 +134,55 @@ async function syncFeiShuData() {
         
         // 优惠类别额外字段
         if (sheetTitle === '优惠') {
-          const appIdIndex = headers.findIndex(h => h && h.toLowerCase() === 'appid');
-          const pathIndex = headers.findIndex(h => h && h.toLowerCase() === 'path');
-          const platformIndex = headers.findIndex(h => h && h.toLowerCase() === 'platform');
-          
-          if (appIdIndex !== -1 && row
+          if (appIdIndex !== -1 && row[appIdIndex]) item.appId = row[appIdIndex];
+          if (pathIndex !== -1 && row[pathIndex]) item.path = row[pathIndex];
+          // 添加platform字段，用于小程序中显示
+          item.platform = '美团圈圈';
+        }
+        
+        items.push(item);
+      }
+      
+      console.log(`工作表 ${sheetTitle} 处理完成，有效数据 ${items.length} 条`);
+      foodData[categoryIds[sheetTitle]] = items;
+    }
+    
+    // 4. 将数据保存为本地JSON文件
+    const jsonData = JSON.stringify(foodData, null, 2);
+    fs.writeFileSync('food-data.json', jsonData);
+    console.log('数据已保存到本地文件');
+    
+    // 5. 上传到OSS
+    console.log('开始上传到OSS...');
+    
+    try {
+      // 上传带时间戳的版本
+      const timestamp = new Date().toISOString().split('T')[0];
+      await ossClient.put(`food-data/food-data-${timestamp}.json`, Buffer.from(jsonData));
+      
+      // 上传最新版本
+      await ossClient.put('food-data/food-data-latest.json', Buffer.from(jsonData));
+      
+      console.log('数据已成功上传到OSS');
+    } catch (ossError) {
+      console.error('上传到OSS失败:', ossError);
+      // 即使OSS上传失败，我们也认为同步基本成功，因为数据已经获取到了
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('同步数据失败:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// 执行同步
+syncFeiShuData().then(result => {
+  if (result.success) {
+    console.log('同步完成');
+    process.exit(0);
+  } else {
+    console.error('同步失败');
+    process.exit(1);
+  }
+});
