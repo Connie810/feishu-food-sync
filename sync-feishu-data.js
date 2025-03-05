@@ -33,23 +33,8 @@ async function syncFeiShuData() {
     const token = tokenRes.data.tenant_access_token;
     console.log('成功获取访问令牌');
     
-    // 2. 获取表格中的所有工作表
-    console.log('获取表格信息...');
-    const sheetsRes = await axios.get(
-      `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/sheets`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    );
-    
-    console.log('表格API响应:', JSON.stringify(sheetsRes.data, null, 2));
-    
-    if (!sheetsRes.data || !sheetsRes.data.data || !sheetsRes.data.data.sheets) {
-      throw new Error('获取表格信息失败: ' + JSON.stringify(sheetsRes.data));
-    }
-    
-    const sheets = sheetsRes.data.data.sheets;
-    console.log(`找到 ${sheets.length} 个工作表`);
-    
-    // 3. 处理每个工作表
+    // 2. 直接处理每个工作表
+    const categories = ['随便', '饮品', '家常菜', '优惠'];
     const categoryIds = {
       '随便': 'all',
       '饮品': 'drinks',
@@ -59,100 +44,103 @@ async function syncFeiShuData() {
     
     let foodData = {};
     
-    for (const sheet of sheets) {
-      const sheetTitle = sheet.sheet_name;
-      const sheetId = sheet.sheet_id;
+    for (const category of categories) {
+      console.log(`处理工作表: ${category}`);
       
-      // 只处理我们关心的工作表
-      if (!Object.keys(categoryIds).includes(sheetTitle)) {
-        console.log(`跳过工作表: ${sheetTitle}`);
-        continue;
-      }
-      
-      console.log(`处理工作表: ${sheetTitle} (ID: ${sheetId})`);
-      
-      // 获取工作表数据
-      const dataRes = await axios.get(
-        `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values/${sheetId}`,
-        { headers: { 'Authorization': `Bearer ${token}` } }
-      );
-      
-      console.log(`工作表 ${sheetTitle} 数据响应:`, JSON.stringify(dataRes.data, null, 2));
-      
-      if (!dataRes.data || !dataRes.data.data || !dataRes.data.data.values) {
-        console.log(`工作表 ${sheetTitle} 没有数据，跳过`);
-        continue;
-      }
-      
-      const rows = dataRes.data.data.values;
-      if (rows.length < 2) {
-        console.log(`工作表 ${sheetTitle} 数据不足，跳过`);
-        continue;
-      }
-      
-      // 假设第一行是表头
-      const headers = rows[0];
-      console.log(`表头: ${headers.join(', ')}`);
-      
-      // 根据您提供的表头信息找到各列的索引
-      const activeIndex = headers.findIndex(h => h && h.toLowerCase() === 'active');
-      const nameIndex = headers.findIndex(h => h && h.toLowerCase() === 'foodname');
-      const descIndex = headers.findIndex(h => h && h.toLowerCase() === 'fooddescription');
-      const imageIndex = headers.findIndex(h => h && h.toLowerCase() === 'imageurl');
-      const appIdIndex = headers.findIndex(h => h && h.toLowerCase() === 'appid');
-      const pathIndex = headers.findIndex(h => h && h.toLowerCase() === 'path');
-      
-      console.log(`列索引 - active: ${activeIndex}, name: ${nameIndex}, description: ${descIndex}, image: ${imageIndex}, appId: ${appIdIndex}, path: ${pathIndex}`);
-      
-      if (nameIndex === -1 || imageIndex === -1 || descIndex === -1) {
-        console.log(`工作表 ${sheetTitle} 缺少必要的列，跳过`);
-        continue;
-      }
-      
-      // 处理数据行
-      const items = [];
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row || row.length === 0) continue;
+      try {
+        // 获取工作表数据，直接使用工作表名称
+        const encodedCategory = encodeURIComponent(category);
+        const dataRes = await axios.get(
+          `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${SHEET_TOKEN}/values/${encodedCategory}`,
+          { headers: { 'Authorization': `Bearer ${token}` } }
+        );
         
-        // 检查active状态
-        if (activeIndex !== -1 && (!row[activeIndex] || row[activeIndex].toUpperCase() !== 'Y')) {
+        console.log(`工作表 ${category} 数据响应状态码:`, dataRes.status);
+        
+        if (!dataRes.data || !dataRes.data.data || !dataRes.data.data.values) {
+          console.log(`工作表 ${category} 没有数据，跳过`);
           continue;
         }
         
-        // 确保必要字段存在
-        if (!row[nameIndex] || !row[imageIndex]) {
+        const rows = dataRes.data.data.values;
+        if (rows.length < 2) {
+          console.log(`工作表 ${category} 数据不足，跳过`);
           continue;
         }
         
-        // 基本字段
-        const item = {
-          name: row[nameIndex],
-          image: row[imageIndex],
-          description: row[descIndex] || ''
-        };
+        // 假设第一行是表头
+        const headers = rows[0];
+        console.log(`表头: ${headers.join(', ')}`);
         
-        // 优惠类别额外字段
-        if (sheetTitle === '优惠') {
-          if (appIdIndex !== -1 && row[appIdIndex]) item.appId = row[appIdIndex];
-          if (pathIndex !== -1 && row[pathIndex]) item.path = row[pathIndex];
-          // 添加platform字段，用于小程序中显示
-          item.platform = '美团圈圈';
+        // 根据您提供的表头信息找到各列的索引
+        const activeIndex = headers.findIndex(h => h && h.toLowerCase() === 'active');
+        const nameIndex = headers.findIndex(h => h && h.toLowerCase() === 'foodname');
+        const descIndex = headers.findIndex(h => h && h.toLowerCase() === 'fooddescription');
+        const imageIndex = headers.findIndex(h => h && h.toLowerCase() === 'imageurl');
+        const appIdIndex = headers.findIndex(h => h && h.toLowerCase() === 'appid');
+        const pathIndex = headers.findIndex(h => h && h.toLowerCase() === 'path');
+        
+        console.log(`列索引 - active: ${activeIndex}, name: ${nameIndex}, description: ${descIndex}, image: ${imageIndex}, appId: ${appIdIndex}, path: ${pathIndex}`);
+        
+        if (nameIndex === -1 || imageIndex === -1) {
+          console.log(`工作表 ${category} 缺少必要的列，跳过`);
+          continue;
         }
         
-        items.push(item);
+        // 处理数据行
+        const items = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+          
+          // 检查active状态
+          if (activeIndex !== -1 && (!row[activeIndex] || row[activeIndex].toUpperCase() !== 'Y')) {
+            continue;
+          }
+          
+          // 确保必要字段存在
+          if (!row[nameIndex] || !row[imageIndex]) {
+            continue;
+          }
+          
+          // 基本字段
+          const item = {
+            name: row[nameIndex],
+            image: row[imageIndex],
+            description: descIndex !== -1 ? (row[descIndex] || '') : ''
+          };
+          
+          // 优惠类别额外字段
+          if (category === '优惠') {
+            if (appIdIndex !== -1 && row[appIdIndex]) item.appId = row[appIdIndex];
+            if (pathIndex !== -1 && row[pathIndex]) item.path = row[pathIndex];
+            // 添加platform字段，用于小程序中显示
+            item.platform = '美团圈圈';
+          }
+          
+          items.push(item);
+        }
+        
+        console.log(`工作表 ${category} 处理完成，有效数据 ${items.length} 条`);
+        foodData[categoryIds[category]] = items;
+      } catch (error) {
+        console.error(`处理工作表 ${category} 时出错:`, error.message);
+        // 继续处理下一个工作表
       }
-      
-      console.log(`工作表 ${sheetTitle} 处理完成，有效数据 ${items.length} 条`);
-      foodData[categoryIds[sheetTitle]] = items;
     }
     
-    // 4. 将数据保存为本地JSON文件
+    // 检查是否获取到任何数据
+    const totalItems = Object.values(foodData).reduce((sum, items) => sum + items.length, 0);
+    if (totalItems === 0) {
+      throw new Error('未能从任何工作表获取数据');
+    }
+    
+    // 3. 将数据保存为本地JSON文件
     const jsonData = JSON.stringify(foodData, null, 2);
     fs.writeFileSync('food-data.json', jsonData);
     console.log('数据已保存到本地文件');
     
-    // 5. 上传到OSS
+    // 4. 上传到OSS
     console.log('开始上传到OSS...');
     
     try {
