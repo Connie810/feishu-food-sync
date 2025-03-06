@@ -1,13 +1,13 @@
 {
-  "name": "feishu-food-sync",
+  "name": "food-data-sync",
   "version": "1.0.0",
-  "description": "Sync food data from Feishu to OSS",
-  "main": "sync-feishu-data.js",
+  "description": "Sync food data from Feishu to Aliyun OSS",
+  "main": "scripts/fetch-and-upload.js",
   "scripts": {
-    "sync": "node sync-feishu-data.js"
+    "sync": "node scripts/fetch-and-upload.js"
   },
   "dependencies": {
-    "axios": "^0.27.2",
+    "axios": "^0.24.0",
     "ali-oss": "^6.17.1"
   }
 }
