@@ -1,3 +1,4 @@
+// scripts/fetch-and-upload.js
 const axios = require('axios');
 const OSS = require('ali-oss');
 
@@ -19,14 +20,16 @@ async function main() {
     const token = tokenResponse.data.tenant_access_token;
     console.log('成功获取飞书访问令牌');
     
-    // 2. 获取表格数据
-       // 修改获取表格数据的部分
+    // 2. 获取表格数据 - 使用 v3 API
     console.log('获取飞书表格数据...');
     console.log('使用的表格ID:', process.env.SPREADSHEET_ID);
     console.log('使用的工作表名称:', process.env.SHEET_NAME);
     
+    // 构建范围字符串，例如 "Sheet1!A1:Z1000"
+    const rangeStr = `${process.env.SHEET_NAME}!A1:Z1000`;
+    
     const tableResponse = await axios.get(
-      `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${process.env.SPREADSHEET_ID}/values/${process.env.SHEET_NAME}`, 
+      `https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${process.env.SPREADSHEET_ID}/values/${rangeStr}`, 
       {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -34,8 +37,23 @@ async function main() {
       }
     );
     
+    if (!tableResponse.data.data || !tableResponse.data.data.valueRange || !tableResponse.data.data.valueRange.values) {
+      throw new Error('获取表格数据失败: ' + JSON.stringify(tableResponse.data));
+    }
+    
     // 3. 处理表格数据
-        // 找到各字段的索引
+    console.log('处理表格数据...');
+    const rawData = tableResponse.data.data.valueRange.values;
+    
+    if (rawData.length === 0) {
+      throw new Error('表格数据为空');
+    }
+    
+    const headers = rawData[0];
+    console.log('表头:', headers);
+    console.log('数据行数:', rawData.length - 1);
+    
+    // 找到各字段的索引
     const categoryIndex = headers.indexOf('category');
     const idIndex = headers.indexOf('id');
     const activeIndex = headers.indexOf('active');
@@ -49,16 +67,17 @@ async function main() {
     
     // 检查必要字段是否存在
     if (categoryIndex === -1 || nameIndex === -1 || imageIndex === -1 || descriptionIndex === -1) {
-      throw new Error('表格缺少必要字段，请检查表头');
+      throw new Error('表格缺少必要字段，请检查表头: ' + headers.join(', '));
     }
     
     // 处理数据，按分类组织
     const processedData = {};
-
+    
     for (let i = 1; i < rawData.length; i++) {
       const row = rawData[i];
-      // 跳过空行或非激活项
+      // 跳过空行
       if (!row[categoryIndex] || !row[nameIndex]) continue;
+      // 跳过非激活项
       if (activeIndex !== -1 && row[activeIndex] === 'false') continue;
       
       const category = row[categoryIndex];
@@ -75,7 +94,7 @@ async function main() {
         description: row[descriptionIndex] || '',
         image: row[imageIndex] || ''
       };
-  
+      
       // 添加可选字段
       if (regularPriceIndex !== -1 && row[regularPriceIndex]) {
         item.regularPrice = row[regularPriceIndex];
@@ -95,6 +114,9 @@ async function main() {
       
       processedData[category].push(item);
     }
+    
+    console.log(`成功处理 ${rawData.length - 1} 行数据，共 ${Object.keys(processedData).length} 个分类`);
+    
     // 4. 准备JSON数据
     const jsonData = JSON.stringify({
       categories: processedData,
