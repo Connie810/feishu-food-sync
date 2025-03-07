@@ -35,17 +35,17 @@ async function main() {
     }
     
     // 3. 处理表格数据
-    console.log('处理表格数据...');
-    const rawData = tableResponse.data.data.valueRange.values;
-    const headers = rawData[0];
-    
-    // 找到各字段的索引
+        // 找到各字段的索引
     const categoryIndex = headers.indexOf('category');
     const idIndex = headers.indexOf('id');
+    const activeIndex = headers.indexOf('active');
     const nameIndex = headers.indexOf('name');
-    const imageIndex = headers.indexOf('image');
     const descriptionIndex = headers.indexOf('description');
-    const priceIndex = headers.indexOf('price');
+    const imageIndex = headers.indexOf('image');
+    const regularPriceIndex = headers.indexOf('regularPrice');
+    const discountPriceIndex = headers.indexOf('discountPrice');
+    const appIdIndex = headers.indexOf('appId');
+    const pathIndex = headers.indexOf('path');
     
     // 检查必要字段是否存在
     if (categoryIndex === -1 || nameIndex === -1 || imageIndex === -1 || descriptionIndex === -1) {
@@ -54,11 +54,12 @@ async function main() {
     
     // 处理数据，按分类组织
     const processedData = {};
-    
+
     for (let i = 1; i < rawData.length; i++) {
       const row = rawData[i];
-      // 跳过空行
+      // 跳过空行或非激活项
       if (!row[categoryIndex] || !row[nameIndex]) continue;
+      if (activeIndex !== -1 && row[activeIndex] === 'false') continue;
       
       const category = row[categoryIndex];
       
@@ -68,17 +69,32 @@ async function main() {
       }
       
       // 添加数据项
-      processedData[category].push({
+      const item = {
         id: row[idIndex] || `item-${i}`,
         name: row[nameIndex],
-        image: row[imageIndex] || '',
         description: row[descriptionIndex] || '',
-        price: priceIndex !== -1 ? row[priceIndex] || null : null
-      });
+        image: row[imageIndex] || ''
+      };
+  
+      // 添加可选字段
+      if (regularPriceIndex !== -1 && row[regularPriceIndex]) {
+        item.regularPrice = row[regularPriceIndex];
+      }
+      
+      if (discountPriceIndex !== -1 && row[discountPriceIndex]) {
+        item.price = row[discountPriceIndex];
+      }
+      
+      if (appIdIndex !== -1 && row[appIdIndex]) {
+        item.appId = row[appIdIndex];
+      }
+      
+      if (pathIndex !== -1 && row[pathIndex]) {
+        item.path = row[pathIndex];
+      }
+      
+      processedData[category].push(item);
     }
-    
-    console.log(`成功处理 ${rawData.length - 1} 行数据，共 ${Object.keys(processedData).length} 个分类`);
-    
     // 4. 准备JSON数据
     const jsonData = JSON.stringify({
       categories: processedData,
