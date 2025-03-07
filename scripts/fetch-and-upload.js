@@ -20,19 +20,25 @@ async function main() {
     const token = tokenResponse.data.tenant_access_token;
     console.log('成功获取飞书访问令牌');
     
-    // 2. 获取表格数据 - 使用 v3 API
+    // 2. 获取表格数据
     console.log('获取飞书表格数据...');
-    console.log('使用的表格ID:', process.env.SPREADSHEET_ID);
-    console.log('使用的工作表名称:', process.env.SHEET_NAME);
+    console.log('使用的表格Token:', process.env.SPREADSHEET_ID);
+    console.log('使用的工作表ID:', process.env.SHEET_NAME);
     
-    // 构建范围字符串，例如 "Sheet1!A1:Z1000"
-    const rangeStr = `${process.env.SHEET_NAME}!A1:Z1000`;
+    // 构建范围字符串，正确格式: <sheetId>!<开始位置>:<结束位置>
+    const sheetId = process.env.SHEET_NAME; // 这里实际上是 sheetId
+    const rangeStr = `${sheetId}!A1:Z1000`;
+    
+    console.log('请求范围:', rangeStr);
     
     const tableResponse = await axios.get(
-      `https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/${process.env.SPREADSHEET_ID}/values/${rangeStr}`, 
+      `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${process.env.SPREADSHEET_ID}/values/${rangeStr}`, 
       {
         headers: {
           'Authorization': `Bearer ${token}`
+        },
+        params: {
+          valueRenderOption: 'ToString' // 返回纯文本值
         }
       }
     );
@@ -76,6 +82,7 @@ async function main() {
     for (let i = 1; i < rawData.length; i++) {
       const row = rawData[i];
       // 跳过空行
+      if (!row || row.length === 0) continue;
       if (!row[categoryIndex] || !row[nameIndex]) continue;
       // 跳过非激活项
       if (activeIndex !== -1 && row[activeIndex] === 'false') continue;
