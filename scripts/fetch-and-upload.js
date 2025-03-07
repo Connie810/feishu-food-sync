@@ -20,7 +20,11 @@ async function main() {
     console.log('成功获取飞书访问令牌');
     
     // 2. 获取表格数据
+       // 修改获取表格数据的部分
     console.log('获取飞书表格数据...');
+    console.log('使用的表格ID:', process.env.SPREADSHEET_ID);
+    console.log('使用的工作表名称:', process.env.SHEET_NAME);
+    
     const tableResponse = await axios.get(
       `https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/${process.env.SPREADSHEET_ID}/values/${process.env.SHEET_NAME}`, 
       {
@@ -29,10 +33,6 @@ async function main() {
         }
       }
     );
-    
-    if (!tableResponse.data.data || !tableResponse.data.data.valueRange || !tableResponse.data.data.valueRange.values) {
-      throw new Error('获取表格数据失败: ' + JSON.stringify(tableResponse.data));
-    }
     
     // 3. 处理表格数据
         // 找到各字段的索引
